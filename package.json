@@ -1,0 +1,24 @@
+{
+	"name": "pict-provider-vocabulary",
+	"version": "0.0.1",
+	"description": "Pict provider for vocabulary/glossary term management — holds a term index, provides a resolver callback for pict-section-content's parseMarkdown auto-linking, and wires popover hover handlers on rendered terms. Works with any term source: filesystem, database, or API.",
+	"main": "source/Pict-Provider-Vocabulary.js",
+	"scripts": {
+		"start": "node source/Pict-Provider-Vocabulary.js",
+		"test": "npx mocha -u tdd --exit --timeout 5000 test/Pict-Vocabulary_tests.js",
+		"coverage": "npx nyc --reporter=lcov --reporter=text npm test"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/stevenvelozo/pict-provider-vocabulary.git"
+	},
+	"author": "steven velozo <steven@velozo.com>",
+	"license": "MIT",
+	"dependencies": {
+		"pict-provider": "^1.0.12"
+	},
+	"devDependencies": {
+		"fable": "^3.0.0",
+		"mocha": "^10.2.0"
+	}
+}
