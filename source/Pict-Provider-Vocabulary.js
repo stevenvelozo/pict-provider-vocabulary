@@ -236,3 +236,9 @@ class PictProviderVocabulary extends libPictProvider
 
 module.exports = PictProviderVocabulary;
 module.exports.default_configuration = {};
+
+// Export the vocabulary manager view so host apps can register it.
+// Usage:
+//   const libVocab = require('pict-provider-vocabulary');
+//   pict.addView('Vocabulary', libVocab.VocabularyManagerView.default_configuration, libVocab.VocabularyManagerView);
+module.exports.VocabularyManagerView = require('./views/PictView-VocabularyManager.js');
