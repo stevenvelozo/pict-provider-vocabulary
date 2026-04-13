@@ -28,15 +28,11 @@ class PictProviderVocabulary extends libPictProvider
 		// The term index: { slug: { title, short } }
 		this._Index = {};
 
-		// Inject the popover CSS into the Pict CSS cascade
-		if (this.pict && this.pict.CSSMap)
+		// Inject the vocabulary CSS into the Pict CSS cascade.
+		// Uses the CSSMap.addCSS() API so injectCSS() picks it up.
+		if (this.pict && this.pict.CSSMap && typeof this.pict.CSSMap.addCSS === 'function')
 		{
-			this.pict.CSSMap['Pict-Provider-Vocabulary'] =
-			{
-				Hash: 'Pict-Provider-Vocabulary',
-				CSS: libCSS,
-				Priority: 500
-			};
+			this.pict.CSSMap.addCSS('Pict-Provider-Vocabulary', libCSS, 500);
 		}
 	}
 

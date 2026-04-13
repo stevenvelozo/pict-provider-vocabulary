@@ -23,7 +23,7 @@ const libPictView = require('pict-view');
 const defaultOptions =
 {
 	ViewIdentifier: 'Pict-VocabularyManager',
-	DefaultRenderable: 'VocabularyManager-Container',
+	DefaultRenderable: 'VocabMgr-Display',
 	DefaultDestinationAddress: '#PictVocabularyManager',
 	AutoInitialize: false,
 	AutoRender: false,
@@ -45,7 +45,81 @@ const defaultOptions =
 	// Callback: host app provides this to open a term file in its
 	// own editor. Signature: (slug, filePath) => void.
 	// If null, falls back to rendering a read-only markdown preview.
-	onEditTerm: null
+	onEditTerm: null,
+
+	Templates:
+	[
+		{
+			Hash: 'VocabMgr-Shell',
+			Template: /*html*/`<div class="vocab-sidebar-header"><strong>Vocabulary</strong></div>
+<input type="text" class="vocab-filter" id="vocab-mgr-filter" placeholder="Filter terms..." oninput="{~P~}.views['{~D:Record.ViewHash~}'].setFilter(this.value)" value="" />
+<div class="vocab-list" id="vocab-mgr-list"></div>
+<div class="vocab-create-overlay" id="vocab-mgr-create-overlay" style="display:none" onclick="{~P~}.views['{~D:Record.ViewHash~}'].hideCreateModal()">
+  <div class="vocab-create-panel" onclick="event.stopPropagation()">
+    <div class="vocab-create-body">
+      <div class="vocab-create-title">New Vocabulary Term</div>
+      <input type="text" class="vocab-create-input" id="vocab-mgr-create-input" placeholder="Term slug (e.g. attention, bert)" onkeydown="if(event.key==='Enter'){event.preventDefault();{~P~}.views['{~D:Record.ViewHash~}']._submitCreateTerm()}" />
+    </div>
+    <div class="vocab-create-actions">
+      <button class="vocab-btn vocab-btn-primary" onclick="{~P~}.views['{~D:Record.ViewHash~}']._submitCreateTerm()">Create</button>
+      <button class="vocab-btn" onclick="{~P~}.views['{~D:Record.ViewHash~}'].hideCreateModal()">Cancel</button>
+    </div>
+    <div class="vocab-create-footer"><kbd>Enter</kbd> to create &middot; <kbd>Esc</kbd> to cancel</div>
+  </div>
+</div>`
+		},
+		{
+			Hash: 'VocabMgr-TermItem',
+			Template: /*html*/`<div class="vocab-item" onclick="{~P~}.views['{~D:Record.ViewHash~}'].loadTerm('{~D:Record.slug~}')">
+  <div style="display:flex;align-items:center;gap:6px">
+    <div class="vocab-item-title" style="flex:1">{~D:Record.title~}</div>
+  </div>
+  <div class="vocab-item-short">{~D:Record.shortTruncated~}</div>
+</div>`
+		},
+		{
+			Hash: 'VocabMgr-TermActive',
+			Template: /*html*/`<div class="vocab-item vocab-item-active" onclick="{~P~}.views['{~D:Record.ViewHash~}'].loadTerm('{~D:Record.slug~}')">
+  <div style="display:flex;align-items:center;gap:6px">
+    <div class="vocab-item-title" style="flex:1">{~D:Record.title~}</div>
+  </div>
+  <div class="vocab-item-preview-short">{~D:Record.shortEscaped~}</div>
+  <div class="vocab-item-preview-body">{~D:Record.bodyEscaped~}</div>
+  <div class="vocab-item-preview-actions">
+    <button class="vocab-btn vocab-btn-primary" style="font-size:0.75em" onclick="event.stopPropagation();{~P~}.views['{~D:Record.ViewHash~}'].editTerm('{~D:Record.slug~}')">Edit in Editor</button>
+  </div>
+</div>`
+		},
+		{
+			Hash: 'VocabMgr-TermActiveLoading',
+			Template: /*html*/`<div class="vocab-item vocab-item-active" onclick="{~P~}.views['{~D:Record.ViewHash~}'].loadTerm('{~D:Record.slug~}')">
+  <div style="display:flex;align-items:center;gap:6px">
+    <div class="vocab-item-title" style="flex:1">{~D:Record.title~}</div>
+  </div>
+  <div class="vocab-item-short">{~D:Record.shortTruncated~}</div>
+  <div class="vocab-item-preview-actions">
+    <button class="vocab-btn" style="font-size:0.75em" onclick="event.stopPropagation();{~P~}.views['{~D:Record.ViewHash~}'].editTerm('{~D:Record.slug~}')">Edit</button>
+  </div>
+</div>`
+		},
+		{
+			Hash: 'VocabMgr-Empty',
+			Template: /*html*/`<div class="vocab-empty">No vocabulary terms yet. Click <strong>+ New</strong> to create one.</div>`
+		},
+		{
+			Hash: 'VocabMgr-EmptyFilter',
+			Template: /*html*/`<div class="vocab-empty">No terms match your filter.</div>`
+		}
+	],
+
+	Renderables:
+	[
+		{
+			RenderableHash: 'VocabMgr-Display',
+			TemplateHash: 'VocabMgr-Shell',
+			RenderMethod: 'replace'
+		}
+	]
 };
 
 class PictViewVocabularyManager extends libPictView
@@ -149,12 +223,13 @@ class PictViewVocabularyManager extends libPictView
 
 	showCreateModal()
 	{
-		let tmpOverlay = document.getElementById('vocab-mgr-create-overlay');
+		let tmpOverlay = this.pict.ContentAssignment.getElement('#vocab-mgr-create-overlay')[0];
 		if (!tmpOverlay) return;
 
+		tmpOverlay.style.display = '';
 		tmpOverlay.classList.add('open');
 
-		let tmpInput = document.getElementById('vocab-mgr-create-input');
+		let tmpInput = this.pict.ContentAssignment.getElement('#vocab-mgr-create-input')[0];
 		if (tmpInput)
 		{
 			tmpInput.value = '';
@@ -179,13 +254,14 @@ class PictViewVocabularyManager extends libPictView
 
 	hideCreateModal()
 	{
-		let tmpOverlay = document.getElementById('vocab-mgr-create-overlay');
+		let tmpOverlay = this.pict.ContentAssignment.getElement('#vocab-mgr-create-overlay')[0];
 		if (tmpOverlay)
 		{
 			tmpOverlay.classList.remove('open');
+			tmpOverlay.style.display = 'none';
 		}
 
-		let tmpInput = document.getElementById('vocab-mgr-create-input');
+		let tmpInput = this.pict.ContentAssignment.getElement('#vocab-mgr-create-input')[0];
 		if (tmpInput)
 		{
 			tmpInput.value = '';
@@ -199,7 +275,7 @@ class PictViewVocabularyManager extends libPictView
 
 	_submitCreateTerm()
 	{
-		let tmpInput = document.getElementById('vocab-mgr-create-input');
+		let tmpInput = this.pict.ContentAssignment.getElement('#vocab-mgr-create-input')[0];
 		if (!tmpInput) return;
 
 		let tmpSlug = (tmpInput.value || '').trim();
@@ -244,61 +320,24 @@ class PictViewVocabularyManager extends libPictView
 	}
 
 	// ================================================================
-	// Rendering
+	// Lifecycle
 	// ================================================================
 
-	render()
+	onAfterRender(pRenderable, pRenderDestinationAddress, pRecord, pContent)
 	{
-		let tmpDest = document.querySelector(this.options.DefaultDestinationAddress);
-		if (!tmpDest) return;
-
-		// Only build the shell (header + filter + list container)
-		// if it doesn't already exist. This preserves focus in the
-		// filter input across refreshTermList→render cycles.
-		let tmpListEl = document.querySelector('#vocab-mgr-list');
-		if (!tmpListEl)
-		{
-			let tmpViewRef = `window.pict.views['${this.Hash}']`;
-			let tmpHTML = '';
-
-			tmpHTML += '<div class="vocab-sidebar-header">';
-			tmpHTML += '<strong>Vocabulary</strong>';
-			tmpHTML += '</div>';
-			tmpHTML += `<input type="text" class="vocab-filter" id="vocab-mgr-filter" placeholder="Filter terms..." oninput="${tmpViewRef}.setFilter(this.value)" value="" />`;
-			tmpHTML += '<div class="vocab-list" id="vocab-mgr-list"></div>';
-
-			// Create-term modal overlay
-			tmpHTML += `<div class="vocab-create-overlay" id="vocab-mgr-create-overlay" onclick="${tmpViewRef}.hideCreateModal()">`;
-			tmpHTML += '<div class="vocab-create-panel" onclick="event.stopPropagation()">';
-			tmpHTML += '<div class="vocab-create-body">';
-			tmpHTML += '<div class="vocab-create-title">New Vocabulary Term</div>';
-			tmpHTML += `<input type="text" class="vocab-create-input" id="vocab-mgr-create-input" placeholder="Term slug (e.g. attention, bert)" onkeydown="if(event.key==='Enter'){event.preventDefault();${tmpViewRef}._submitCreateTerm()}" />`;
-			tmpHTML += '</div>';
-			tmpHTML += '<div class="vocab-create-actions">';
-			tmpHTML += `<button class="vocab-btn vocab-btn-primary" onclick="${tmpViewRef}._submitCreateTerm()">Create</button>`;
-			tmpHTML += `<button class="vocab-btn" onclick="${tmpViewRef}.hideCreateModal()">Cancel</button>`;
-			tmpHTML += '</div>';
-			tmpHTML += '<div class="vocab-create-footer">';
-			tmpHTML += '<kbd>Enter</kbd> to create &middot; <kbd>Esc</kbd> to cancel';
-			tmpHTML += '</div>';
-			tmpHTML += '</div>';
-			tmpHTML += '</div>';
-
-			tmpDest.innerHTML = tmpHTML;
-		}
-
-		// Always update the term list (cheap — just innerHTML on
-		// the list container, doesn't touch the filter input).
 		this._renderTermList();
 
-		// Inject CSS — the vocabulary view is lazy-rendered and
-		// bypasses the standard Pict render pipeline, so it must
-		// trigger injection explicitly after DOM manipulation.
 		if (this.pict && this.pict.CSSMap && typeof this.pict.CSSMap.injectCSS === 'function')
 		{
 			this.pict.CSSMap.injectCSS();
 		}
+
+		return super.onAfterRender(pRenderable, pRenderDestinationAddress, pRecord, pContent);
 	}
+
+	// ================================================================
+	// Rendering
+	// ================================================================
 
 	/**
 	 * Re-render just the term list inside #vocab-mgr-list,
@@ -306,12 +345,11 @@ class PictViewVocabularyManager extends libPictView
 	 */
 	_renderTermList()
 	{
-		let tmpListEl = document.querySelector('#vocab-mgr-list');
+		let tmpListEl = this.pict.ContentAssignment.getElement('#vocab-mgr-list')[0];
 		if (!tmpListEl) return;
 
 		let tmpProvider = this._getProvider();
 		let tmpTerms = tmpProvider ? tmpProvider.getTerms() : [];
-		let tmpViewRef = `window.pict.views['${this.Hash}']`;
 
 		let tmpFiltered = tmpTerms;
 		if (this._FilterText)
@@ -329,54 +367,44 @@ class PictViewVocabularyManager extends libPictView
 		{
 			let tmpTerm = tmpFiltered[i];
 			let tmpIsActive = tmpTerm.slug === this._SelectedSlug;
-			let tmpActive = tmpIsActive ? ' vocab-item-active' : '';
-			tmpHTML += `<div class="vocab-item${tmpActive}" onclick="${tmpViewRef}.loadTerm('${tmpTerm.slug}')">`;
-			tmpHTML += '<div style="display:flex;align-items:center;gap:6px">';
-			tmpHTML += `<div class="vocab-item-title" style="flex:1">${tmpTerm.title}</div>`;
-			tmpHTML += '</div>';
+
+			let tmpShortText = (tmpTerm.short || '').substring(0, 80);
+			if (tmpTerm.short && tmpTerm.short.length > 80) tmpShortText += '...';
+
+			let tmpRecord =
+			{
+				ViewHash: this.Hash,
+				slug: tmpTerm.slug,
+				title: tmpTerm.title,
+				shortTruncated: this._escapeHTML(tmpShortText),
+				shortEscaped: this._escapeHTML(tmpTerm.short || ''),
+				bodyEscaped: this._escapeHTML(this._Body)
+			};
 
 			if (tmpIsActive && this._Body)
 			{
-				// Expanded preview for the selected term
-				let tmpShort = tmpTerm.short || '';
-				if (tmpShort)
-				{
-					tmpHTML += '<div class="vocab-item-preview-short">' + this._escapeHTML(tmpShort) + '</div>';
-				}
-				tmpHTML += '<div class="vocab-item-preview-body">' + this._escapeHTML(this._Body) + '</div>';
-				tmpHTML += '<div class="vocab-item-preview-actions">';
-				tmpHTML += `<button class="vocab-btn vocab-btn-primary" style="font-size:0.75em" onclick="event.stopPropagation();${tmpViewRef}.editTerm('${tmpTerm.slug}')">Edit in Editor</button>`;
-				tmpHTML += '</div>';
+				tmpHTML += this.pict.parseTemplateByHash('VocabMgr-TermActive', tmpRecord);
 			}
 			else if (tmpIsActive)
 			{
-				// Active but body not yet loaded — show short + edit button
-				tmpHTML += `<div class="vocab-item-short">${this._escapeHTML((tmpTerm.short || '').substring(0, 120))}</div>`;
-				tmpHTML += '<div class="vocab-item-preview-actions">';
-				tmpHTML += `<button class="vocab-btn" style="font-size:0.75em" onclick="event.stopPropagation();${tmpViewRef}.editTerm('${tmpTerm.slug}')">Edit</button>`;
-				tmpHTML += '</div>';
+				tmpHTML += this.pict.parseTemplateByHash('VocabMgr-TermActiveLoading', tmpRecord);
 			}
 			else
 			{
-				// Inactive terms: truncated short
-				let tmpShortText = (tmpTerm.short || '').substring(0, 80);
-				if (tmpTerm.short && tmpTerm.short.length > 80) tmpShortText += '...';
-				tmpHTML += `<div class="vocab-item-short">${this._escapeHTML(tmpShortText)}</div>`;
+				tmpHTML += this.pict.parseTemplateByHash('VocabMgr-TermItem', tmpRecord);
 			}
-
-			tmpHTML += '</div>';
 		}
 
 		if (tmpFiltered.length === 0 && this._FilterText)
 		{
-			tmpHTML += '<div class="vocab-empty">No terms match your filter.</div>';
+			tmpHTML += this.pict.parseTemplateByHash('VocabMgr-EmptyFilter', {});
 		}
 		else if (tmpFiltered.length === 0)
 		{
-			tmpHTML += '<div class="vocab-empty">No vocabulary terms yet. Click <strong>+ New</strong> to create one.</div>';
+			tmpHTML += this.pict.parseTemplateByHash('VocabMgr-Empty', {});
 		}
 
-		tmpListEl.innerHTML = tmpHTML;
+		this.pict.ContentAssignment.assignContent('#vocab-mgr-list', tmpHTML);
 	}
 
 	// ================================================================
