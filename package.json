@@ -1,6 +1,6 @@
 {
 	"name": "pict-provider-vocabulary",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "Pict provider for vocabulary/glossary term management — holds a term index, provides a resolver callback for pict-section-content's parseMarkdown auto-linking, and wires popover hover handlers on rendered terms. Works with any term source: filesystem, database, or API.",
 	"main": "source/Pict-Provider-Vocabulary.js",
 	"scripts": {
