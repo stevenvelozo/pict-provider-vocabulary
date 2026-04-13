@@ -10,8 +10,10 @@
  * from a hardcoded API URL), so it works with any term source the
  * host app configured (filesystem, database, API).
  *
- * Layout: left sidebar (search + A-Z term list) + right content
- * pane (rendered markdown with edit toggle).
+ * Editing: instead of rendering its own textarea, the view delegates
+ * to the host app via an `onEditTerm(slug, filePath)` callback in
+ * options. This lets retold-content-system open the term in its
+ * main markdown editor, and retold-labs use its own edit pattern.
  *
  * @author Steven Velozo <steven@velozo.com>
  * @license MIT
@@ -26,17 +28,24 @@ const defaultOptions =
 	AutoInitialize: false,
 	AutoRender: false,
 
-	// API endpoints — configurable per host app. The provider
-	// handles index loading; these are only for per-term CRUD.
+	// API endpoints
 	VocabularyIndexURL: '/api/vocabulary/index',
-	VocabularyTermURL: '/api/vocabulary/term',   // + /:slug
+	VocabularyTermURL: '/api/vocabulary/term',
 
-	// Route prefix for "Read more →" links in popovers.
+	// Route prefix for "Read more" links
 	VocabularyRoute: '#/vocabulary',
 
-	// The hash of the Vocabulary provider to read terms from.
-	// The view looks it up on this.pict.providers[ProviderHash].
-	VocabularyProviderHash: 'Vocabulary'
+	// The hash of the Vocabulary provider
+	VocabularyProviderHash: 'Vocabulary',
+
+	// The folder path prefix for vocabulary files in the content
+	// tree. Used to build the file path passed to onEditTerm.
+	VocabularyFolderPath: 'vocabulary/',
+
+	// Callback: host app provides this to open a term file in its
+	// own editor. Signature: (slug, filePath) => void.
+	// If null, falls back to rendering a read-only markdown preview.
+	onEditTerm: null
 };
 
 class PictViewVocabularyManager extends libPictView
@@ -48,7 +57,6 @@ class PictViewVocabularyManager extends libPictView
 
 		this._SelectedSlug = '';
 		this._Body = '';
-		this._EditMode = false;
 		this._FilterText = '';
 	}
 
@@ -66,11 +74,6 @@ class PictViewVocabularyManager extends libPictView
 	// Data loading
 	// ================================================================
 
-	/**
-	 * Reload the term list from the provider and re-render.
-	 * The provider's index is already loaded at app init; this
-	 * just refreshes in case terms were added or edited.
-	 */
 	refreshTermList(fCallback)
 	{
 		let tmpProvider = this._getProvider();
@@ -91,7 +94,6 @@ class PictViewVocabularyManager extends libPictView
 	{
 		let tmpSelf = this;
 		tmpSelf._SelectedSlug = pSlug;
-		tmpSelf._EditMode = false;
 		let tmpURL = this.options.VocabularyTermURL + '/' + encodeURIComponent(pSlug);
 		fetch(tmpURL)
 			.then(function (r) { return r.json(); })
@@ -107,29 +109,30 @@ class PictViewVocabularyManager extends libPictView
 			});
 	}
 
-	saveTerm(fCallback)
+	editTerm(pSlug)
 	{
-		let tmpSelf = this;
-		let tmpTextarea = document.querySelector('#vocab-edit-textarea');
-		let tmpBody = tmpTextarea ? tmpTextarea.value : '';
-		let tmpURL = this.options.VocabularyTermURL + '/' + encodeURIComponent(tmpSelf._SelectedSlug);
-		fetch(tmpURL,
-			{
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ body: tmpBody })
-			})
-			.then(function (r) { return r.json(); })
-			.then(function ()
-			{
-				tmpSelf._Body = tmpBody;
-				tmpSelf._EditMode = false;
-				tmpSelf.refreshTermList(fCallback);
-			})
-			.catch(function (e)
-			{
-				if (fCallback) fCallback(e);
-			});
+		// Delegate to host app's editor via callback
+		let tmpCallback = this.options.onEditTerm;
+		if (typeof tmpCallback === 'function')
+		{
+			let tmpPath = (this.options.VocabularyFolderPath || 'vocabulary/') + pSlug + '.md';
+			tmpCallback(pSlug, tmpPath);
+			return;
+		}
+
+		// Fallback: try navigateToFile on the PictApplication
+		if (this.pict && this.pict.PictApplication && typeof this.pict.PictApplication.navigateToFile === 'function')
+		{
+			let tmpPath = (this.options.VocabularyFolderPath || 'vocabulary/') + pSlug + '.md';
+			this.pict.PictApplication.navigateToFile(tmpPath);
+			return;
+		}
+
+		// Last resort: navigate to the vocabulary route
+		if (typeof window !== 'undefined')
+		{
+			window.location.hash = (this.options.VocabularyRoute || '#/vocabulary') + '/' + pSlug;
+		}
 	}
 
 	createTerm()
@@ -149,17 +152,25 @@ class PictViewVocabularyManager extends libPictView
 			.then(function (r) { return r.json(); })
 			.then(function ()
 			{
-				tmpSelf.refreshTermList(function ()
+				// Refresh with a small delay to let the file flush to disk
+				setTimeout(function ()
 				{
-					tmpSelf.loadTerm(tmpSlug);
-				});
+					tmpSelf.refreshTermList(function ()
+					{
+						tmpSelf._SelectedSlug = tmpSlug;
+						tmpSelf.render();
+						// Open in the host editor
+						tmpSelf.editTerm(tmpSlug);
+					});
+				}, 200);
 			});
 	}
 
 	setFilter(pText)
 	{
 		this._FilterText = (pText || '').toLowerCase();
-		this.render();
+		// Only re-render the term list, NOT the filter input
+		this._renderTermList();
 	}
 
 	// ================================================================
@@ -175,16 +186,39 @@ class PictViewVocabularyManager extends libPictView
 		let tmpTerms = tmpProvider ? tmpProvider.getTerms() : [];
 
 		let tmpViewRef = `window.pict.views['${this.Hash}']`;
-		let tmpHTML = '<div class="vocab-layout">';
+		let tmpHTML = '';
 
-		// ── Sidebar ──────────────────────────────────────────
-		tmpHTML += '<div class="vocab-sidebar">';
+		// ── Header ───────────────────────────────────────────
 		tmpHTML += '<div class="vocab-sidebar-header">';
 		tmpHTML += '<strong>Vocabulary</strong>';
 		tmpHTML += `<button class="vocab-btn" onclick="${tmpViewRef}.createTerm()">+ New</button>`;
 		tmpHTML += '</div>';
-		tmpHTML += `<input type="text" class="vocab-filter" placeholder="Filter terms..." oninput="${tmpViewRef}.setFilter(this.value)" value="${this._FilterText}" />`;
-		tmpHTML += '<div class="vocab-list">';
+
+		// ── Filter ───────────────────────────────────────────
+		tmpHTML += `<input type="text" class="vocab-filter" id="vocab-mgr-filter" placeholder="Filter terms..." oninput="${tmpViewRef}.setFilter(this.value)" value="${this._FilterText}" />`;
+
+		// ── Term list ────────────────────────────────────────
+		tmpHTML += '<div class="vocab-list" id="vocab-mgr-list"></div>';
+
+		tmpDest.innerHTML = tmpHTML;
+
+		// Render the term list separately so filter updates don't
+		// rebuild the whole DOM (which would steal focus from the input)
+		this._renderTermList();
+	}
+
+	/**
+	 * Re-render just the term list inside #vocab-mgr-list,
+	 * preserving the filter input's focus and cursor position.
+	 */
+	_renderTermList()
+	{
+		let tmpListEl = document.querySelector('#vocab-mgr-list');
+		if (!tmpListEl) return;
+
+		let tmpProvider = this._getProvider();
+		let tmpTerms = tmpProvider ? tmpProvider.getTerms() : [];
+		let tmpViewRef = `window.pict.views['${this.Hash}']`;
 
 		let tmpFiltered = tmpTerms;
 		if (this._FilterText)
@@ -197,73 +231,33 @@ class PictViewVocabularyManager extends libPictView
 			});
 		}
 
+		let tmpHTML = '';
 		for (let i = 0; i < tmpFiltered.length; i++)
 		{
 			let tmpTerm = tmpFiltered[i];
 			let tmpActive = tmpTerm.slug === this._SelectedSlug ? ' vocab-item-active' : '';
 			tmpHTML += `<div class="vocab-item${tmpActive}" onclick="${tmpViewRef}.loadTerm('${tmpTerm.slug}')">`;
-			tmpHTML += `<div class="vocab-item-title">${tmpTerm.title}</div>`;
+			tmpHTML += '<div style="display:flex;align-items:center;gap:6px">';
+			tmpHTML += `<div class="vocab-item-title" style="flex:1">${tmpTerm.title}</div>`;
+			if (tmpTerm.slug === this._SelectedSlug)
+			{
+				tmpHTML += `<button class="vocab-btn" style="font-size:0.7em;padding:2px 8px" onclick="event.stopPropagation();${tmpViewRef}.editTerm('${tmpTerm.slug}')">Edit</button>`;
+			}
+			tmpHTML += '</div>';
 			tmpHTML += `<div class="vocab-item-short">${(tmpTerm.short || '').substring(0, 80)}${tmpTerm.short && tmpTerm.short.length > 80 ? '...' : ''}</div>`;
 			tmpHTML += '</div>';
 		}
 
-		if (tmpFiltered.length === 0)
+		if (tmpFiltered.length === 0 && this._FilterText)
 		{
 			tmpHTML += '<div class="vocab-empty">No terms match your filter.</div>';
 		}
-
-		tmpHTML += '</div></div>';
-
-		// ── Content pane ─────────────────────────────────────
-		tmpHTML += '<div class="vocab-content">';
-
-		if (!this._SelectedSlug)
+		else if (tmpFiltered.length === 0)
 		{
-			tmpHTML += '<div class="vocab-empty">Select a term from the sidebar, or click <strong>+ New</strong> to define one.</div>';
-		}
-		else if (this._EditMode)
-		{
-			tmpHTML += '<div class="vocab-toolbar">';
-			tmpHTML += `<span class="vocab-slug">${this._SelectedSlug}</span>`;
-			tmpHTML += `<button class="vocab-btn vocab-btn-primary" onclick="${tmpViewRef}.saveTerm()">Save</button>`;
-			tmpHTML += `<button class="vocab-btn" onclick="${tmpViewRef}._EditMode=false;${tmpViewRef}.render()">Cancel</button>`;
-			tmpHTML += '</div>';
-			tmpHTML += `<textarea id="vocab-edit-textarea" class="vocab-editor">${this._Body.replace(/</g, '&lt;')}</textarea>`;
-		}
-		else
-		{
-			tmpHTML += '<div class="vocab-toolbar">';
-			tmpHTML += `<span class="vocab-slug">${this._SelectedSlug}</span>`;
-			tmpHTML += `<button class="vocab-btn" onclick="${tmpViewRef}._EditMode=true;${tmpViewRef}.render()">Edit</button>`;
-			tmpHTML += '</div>';
-
-			let tmpRendered = this._Body;
-			try
-			{
-				let tmpContentProv = this.pict && this.pict.providers && this.pict.providers['Pict-Content'];
-				if (tmpContentProv && typeof tmpContentProv.parseMarkdown === 'function')
-				{
-					let tmpVocabResolver = tmpProvider ? tmpProvider.getResolver() : null;
-					tmpRendered = tmpContentProv.parseMarkdown(this._Body, null, null, tmpVocabResolver);
-				}
-			}
-			catch (e)
-			{
-				tmpRendered = '<pre>' + this._Body.replace(/</g, '&lt;') + '</pre>';
-			}
-			tmpHTML += `<div class="vocab-rendered">${tmpRendered}</div>`;
+			tmpHTML += '<div class="vocab-empty">No vocabulary terms yet. Click <strong>+ New</strong> to create one.</div>';
 		}
 
-		tmpHTML += '</div></div>';
-
-		tmpDest.innerHTML = tmpHTML;
-
-		// Wire popovers on the rendered content
-		if (tmpProvider && typeof tmpProvider.wirePopovers === 'function')
-		{
-			tmpProvider.wirePopovers(this.options.DefaultDestinationAddress,
-				{ vocabularyRoute: this.options.VocabularyRoute });
-		}
+		tmpListEl.innerHTML = tmpHTML;
 	}
 }
 
