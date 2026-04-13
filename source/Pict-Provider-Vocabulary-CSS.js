@@ -168,6 +168,15 @@ module.exports = `
 	border-color: var(--accent, #2a8a7a);
 	color: #fff;
 }
+.vocab-btn-danger {
+	color: #D9534F;
+	border-color: #D9534F;
+}
+.vocab-btn-danger:hover {
+	background: #D9534F;
+	border-color: #D9534F;
+	color: #fff;
+}
 
 .vocab-rendered {
 	flex: 1;

@@ -87,6 +87,7 @@ const defaultOptions =
   <div class="vocab-item-preview-body">{~D:Record.bodyEscaped~}</div>
   <div class="vocab-item-preview-actions">
     <button class="vocab-btn vocab-btn-primary" style="font-size:0.75em" onclick="event.stopPropagation();{~P~}.views['{~D:Record.ViewHash~}'].editTerm('{~D:Record.slug~}')">Edit in Editor</button>
+    <button class="vocab-btn vocab-btn-danger" style="font-size:0.75em" onclick="event.stopPropagation();{~P~}.views['{~D:Record.ViewHash~}'].deleteTerm('{~D:Record.slug~}')"><svg width="1em" height="1em" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg> Delete</button>
   </div>
 </div>`
 		},
@@ -209,6 +210,42 @@ class PictViewVocabularyManager extends libPictView
 		if (typeof window !== 'undefined')
 		{
 			window.location.hash = (this.options.VocabularyRoute || '#/vocabulary') + '/' + pSlug;
+		}
+	}
+
+	deleteTerm(pSlug)
+	{
+		if (!pSlug) return;
+
+		// Use the modal confirm if available, otherwise native confirm
+		let tmpModal = this.pict.views['Pict-Section-Modal'] || this.pict.views['PictSectionModal'];
+		let tmpSelf = this;
+
+		let tmpDoDelete = function ()
+		{
+			let tmpURL = tmpSelf.options.VocabularyTermURL + '/' + encodeURIComponent(pSlug);
+			fetch(tmpURL, { method: 'DELETE' })
+				.then(function (r) { return r.json(); })
+				.then(function ()
+				{
+					if (tmpSelf._SelectedSlug === pSlug)
+					{
+						tmpSelf._SelectedSlug = '';
+						tmpSelf._Body = '';
+					}
+					tmpSelf.refreshTermList();
+				});
+		};
+
+		if (tmpModal && typeof tmpModal.confirm === 'function')
+		{
+			tmpModal.confirm('Delete the vocabulary term "' + pSlug + '"? This cannot be undone.',
+				{ title: 'Delete Term', confirmLabel: 'Delete', dangerous: true })
+				.then(function (pConfirmed) { if (pConfirmed) tmpDoDelete(); });
+		}
+		else if (typeof confirm !== 'undefined' && confirm('Delete vocabulary term "' + pSlug + '"?'))
+		{
+			tmpDoDelete();
 		}
 	}
 
